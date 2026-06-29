@@ -23,9 +23,11 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/join_logical_operator.h"
 #include "sql/operator/logical_operator.h"
 #include "sql/operator/predicate_logical_operator.h"
+#include "sql/operator/update_logical_operator.h"
 #include "sql/operator/project_logical_operator.h"
 #include "sql/operator/table_get_logical_operator.h"
 #include "sql/operator/group_by_logical_operator.h"
+#include "sql/operator/sort_logical_operator.h"
 
 #include "sql/stmt/calc_stmt.h"
 #include "sql/stmt/delete_stmt.h"
@@ -33,6 +35,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/stmt/filter_stmt.h"
 #include "sql/stmt/insert_stmt.h"
 #include "sql/stmt/select_stmt.h"
+#include "sql/stmt/update_stmt.h"
 #include "sql/stmt/stmt.h"
 
 #include "sql/expr/expression_iterator.h"
@@ -66,6 +69,12 @@ RC LogicalPlanGenerator::create(Stmt *stmt, unique_ptr<LogicalOperator> &logical
       DeleteStmt *delete_stmt = static_cast<DeleteStmt *>(stmt);
 
       rc = create_plan(delete_stmt, logical_operator);
+    } break;
+
+    case StmtType::UPDATE: {
+      UpdateStmt *update_stmt = static_cast<UpdateStmt *>(stmt);
+
+      rc = create_plan(update_stmt, logical_operator);
     } break;
 
     case StmtType::EXPLAIN: {
@@ -138,12 +147,38 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
     last_oper = &group_by_oper;
   }
 
+  unique_ptr<LogicalOperator> sort_oper;
+  rc = create_sort_plan(select_stmt, sort_oper);
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to create sort logical plan. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  if (sort_oper) {
+    if (*last_oper) {
+      sort_oper->add_child(std::move(*last_oper));
+    }
+    last_oper = &sort_oper;
+  }
+
   auto project_oper = make_unique<ProjectLogicalOperator>(std::move(select_stmt->query_expressions()));
   if (*last_oper) {
     project_oper->add_child(std::move(*last_oper));
   }
 
   logical_operator = std::move(project_oper);
+  return RC::SUCCESS;
+}
+
+RC LogicalPlanGenerator::create_sort_plan(SelectStmt *select_stmt, std::unique_ptr<LogicalOperator> &logical_operator)
+{
+  if (select_stmt->order_by().empty()) {
+    logical_operator = nullptr;
+    return RC::SUCCESS;
+  }
+
+  logical_operator = std::make_unique<SortLogicalOperator>(std::move(select_stmt->order_by()),
+      std::vector<bool>(select_stmt->order_asc().begin(), select_stmt->order_asc().end()));
   return RC::SUCCESS;
 }
 
@@ -164,7 +199,13 @@ RC LogicalPlanGenerator::create_plan(FilterStmt *filter_stmt, unique_ptr<Logical
                                      ? static_cast<Expression *>(new FieldExpr(filter_obj_right.field))
                                      : static_cast<Expression *>(new ValueExpr(filter_obj_right.value)));
 
-    if (left->value_type() != right->value_type()) {
+    if (filter_unit->comp() == IN_OP || filter_unit->comp() == NOT_IN_OP) {
+      cmp_exprs.emplace_back(new InExpr(std::move(left), filter_obj_right.values, filter_unit->comp() == NOT_IN_OP));
+      continue;
+    }
+
+    if (left->value_type() != right->value_type() &&
+        left->value_type() != AttrType::NULLS && right->value_type() != AttrType::NULLS) {
       auto left_to_right_cost = implicit_cast_cost(left->value_type(), right->value_type());
       auto right_to_left_cost = implicit_cast_cost(right->value_type(), left->value_type());
       if (left_to_right_cost <= right_to_left_cost && left_to_right_cost != INT32_MAX) {
@@ -227,10 +268,8 @@ int LogicalPlanGenerator::implicit_cast_cost(AttrType from, AttrType to)
 
 RC LogicalPlanGenerator::create_plan(InsertStmt *insert_stmt, unique_ptr<LogicalOperator> &logical_operator)
 {
-  Table        *table = insert_stmt->table();
-  vector<Value> values(insert_stmt->values(), insert_stmt->values() + insert_stmt->value_amount());
-
-  InsertLogicalOperator *insert_operator = new InsertLogicalOperator(table, values);
+  Table *table = insert_stmt->table();
+  InsertLogicalOperator *insert_operator = new InsertLogicalOperator(table, std::move(insert_stmt->value_groups()));
   logical_operator.reset(insert_operator);
   return RC::SUCCESS;
 }
@@ -259,6 +298,32 @@ RC LogicalPlanGenerator::create_plan(DeleteStmt *delete_stmt, unique_ptr<Logical
 
   logical_operator = std::move(delete_oper);
   return rc;
+}
+
+RC LogicalPlanGenerator::create_plan(UpdateStmt *update_stmt, unique_ptr<LogicalOperator> &logical_operator)
+{
+  Table                      *table       = update_stmt->table();
+  FilterStmt                 *filter_stmt = update_stmt->filter_stmt();
+  unique_ptr<LogicalOperator> table_get_oper(new TableGetLogicalOperator(table, ReadWriteMode::READ_WRITE));
+
+  unique_ptr<LogicalOperator> predicate_oper;
+  RC rc = create_plan(filter_stmt, predicate_oper);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  unique_ptr<LogicalOperator> update_oper(
+      new UpdateLogicalOperator(table, update_stmt->field_meta(), update_stmt->value()));
+
+  if (predicate_oper) {
+    predicate_oper->add_child(std::move(table_get_oper));
+    update_oper->add_child(std::move(predicate_oper));
+  } else {
+    update_oper->add_child(std::move(table_get_oper));
+  }
+
+  logical_operator = std::move(update_oper);
+  return RC::SUCCESS;
 }
 
 RC LogicalPlanGenerator::create_plan(ExplainStmt *explain_stmt, unique_ptr<LogicalOperator> &logical_operator)

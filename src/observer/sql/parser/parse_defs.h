@@ -21,6 +21,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/value.h"
 
 class Expression;
+struct SelectSqlNode;
 
 /**
  * @defgroup SQLParser SQL Parser
@@ -51,6 +52,10 @@ enum CompOp
   LESS_THAN,    ///< "<"
   GREAT_EQUAL,  ///< ">="
   GREAT_THAN,   ///< ">"
+  IS_NULL,
+  IS_NOT_NULL,
+  IN_OP,
+  NOT_IN_OP,
   NO_OP
 };
 
@@ -73,6 +78,7 @@ struct ConditionSqlNode
                                  ///< 1时，操作符右边是属性名，0时，是属性值
   RelAttrSqlNode right_attr;     ///< right-hand side attribute if right_is_attr = TRUE 右边的属性
   Value          right_value;    ///< right-hand side value if right_is_attr = FALSE
+  std::shared_ptr<SelectSqlNode> right_subquery;
 };
 
 /**
@@ -92,6 +98,8 @@ struct SelectSqlNode
   std::vector<std::string>                 relations;    ///< 查询的表
   std::vector<ConditionSqlNode>            conditions;   ///< 查询条件，使用AND串联起来多个条件
   std::vector<std::unique_ptr<Expression>> group_by;     ///< group by clause
+  std::vector<std::unique_ptr<Expression>> order_by;     ///< order by clause
+  std::vector<bool>                        order_asc;    ///< true=asc, false=desc
 };
 
 /**
@@ -111,7 +119,7 @@ struct CalcSqlNode
 struct InsertSqlNode
 {
   std::string        relation_name;  ///< Relation to insert into
-  std::vector<Value> values;         ///< 要插入的值
+  std::vector<std::vector<Value>> value_groups;         ///< 要插入的值
 };
 
 /**
@@ -146,6 +154,7 @@ struct AttrInfoSqlNode
   AttrType    type;    ///< Type of attribute
   std::string name;    ///< Attribute name
   size_t      length;  ///< Length of attribute
+  bool        nullable = true;
 };
 
 /**
@@ -177,9 +186,11 @@ struct DropTableSqlNode
  */
 struct CreateIndexSqlNode
 {
-  std::string index_name;      ///< Index name
-  std::string relation_name;   ///< Relation name
-  std::string attribute_name;  ///< Attribute name
+  std::string              index_name;       ///< Index name
+  std::string              relation_name;    ///< Relation name
+  std::string              attribute_name;   ///< First attribute name
+  std::vector<std::string> attribute_names;  ///< Attribute list
+  bool                     unique = false;
 };
 
 /**
@@ -198,6 +209,15 @@ struct DropIndexSqlNode
  * @details desc table 是查询表结构信息的语句
  */
 struct DescTableSqlNode
+{
+  std::string relation_name;
+};
+
+/**
+ * @brief ???? show index ??
+ * @ingroup SQLParser
+ */
+struct ShowIndexSqlNode
 {
   std::string relation_name;
 };
@@ -268,6 +288,7 @@ enum SqlCommandFlag
   SCF_DROP_INDEX,
   SCF_SYNC,
   SCF_SHOW_TABLES,
+  SCF_SHOW_INDEX,
   SCF_DESC_TABLE,
   SCF_BEGIN,  ///< 事务开始语句，可以在这里扩展只读事务
   SCF_COMMIT,
@@ -298,6 +319,7 @@ public:
   CreateIndexSqlNode  create_index;
   DropIndexSqlNode    drop_index;
   DescTableSqlNode    desc_table;
+  ShowIndexSqlNode    show_index;
   LoadDataSqlNode     load_data;
   ExplainSqlNode      explain;
   SetVariableSqlNode  set_variable;

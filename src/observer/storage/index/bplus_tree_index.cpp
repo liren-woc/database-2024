@@ -82,6 +82,18 @@ RC BplusTreeIndex::close()
 
 RC BplusTreeIndex::insert_entry(const char *record, const RID *rid)
 {
+  if (index_meta_.is_unique()) {
+    list<RID> rids;
+    RC rc = index_handler_.get_entry(record + field_meta_.offset(), field_meta_.len(), rids);
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to probe unique key before insert. index=%s, rc=%s", index_meta_.name(), strrc(rc));
+      return rc;
+    }
+    if (!rids.empty()) {
+      return RC::RECORD_DUPLICATE_KEY;
+    }
+  }
+
   return index_handler_.insert_entry(record + field_meta_.offset(), rid);
 }
 

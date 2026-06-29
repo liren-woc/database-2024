@@ -17,6 +17,9 @@ See the Mulan PSL v2 for more details. */
 
 RC SumAggregator::accumulate(const Value &value)
 {
+  if (value.is_null()) {
+    return RC::SUCCESS;
+  }
   if (value_.attr_type() == AttrType::UNDEFINED) {
     value_ = value;
     return RC::SUCCESS;
@@ -31,6 +34,93 @@ RC SumAggregator::accumulate(const Value &value)
 
 RC SumAggregator::evaluate(Value& result)
 {
+  if (value_.attr_type() == AttrType::UNDEFINED) {
+    result.set_null();
+    return RC::SUCCESS;
+  }
+  result = value_;
+  return RC::SUCCESS;
+}
+
+RC CountAggregator::accumulate(const Value &value)
+{
+  if (value.is_null()) {
+    return RC::SUCCESS;
+  }
+  count_++;
+  return RC::SUCCESS;
+}
+
+RC CountAggregator::evaluate(Value &result)
+{
+  result = Value(count_);
+  return RC::SUCCESS;
+}
+
+RC AvgAggregator::accumulate(const Value &value)
+{
+  if (value.is_null()) {
+    return RC::SUCCESS;
+  }
+  if (sum_.attr_type() == AttrType::UNDEFINED) {
+    sum_ = value;
+  } else {
+    ASSERT(value.attr_type() == sum_.attr_type(), "type mismatch. value type: %s, sum_.type: %s",
+        attr_type_to_string(value.attr_type()), attr_type_to_string(sum_.attr_type()));
+    Value::add(value, sum_, sum_);
+  }
+  count_++;
+  return RC::SUCCESS;
+}
+
+RC AvgAggregator::evaluate(Value &result)
+{
+  if (count_ == 0) {
+    result.set_null();
+    return RC::SUCCESS;
+  }
+  result = Value(sum_.get_float() / count_);
+  return RC::SUCCESS;
+}
+
+RC MinAggregator::accumulate(const Value &value)
+{
+  if (value.is_null()) {
+    return RC::SUCCESS;
+  }
+  if (value_.attr_type() == AttrType::UNDEFINED || value.compare(value_) < 0) {
+    value_ = value;
+  }
+  return RC::SUCCESS;
+}
+
+RC MinAggregator::evaluate(Value &result)
+{
+  if (value_.attr_type() == AttrType::UNDEFINED) {
+    result.set_null();
+    return RC::SUCCESS;
+  }
+  result = value_;
+  return RC::SUCCESS;
+}
+
+RC MaxAggregator::accumulate(const Value &value)
+{
+  if (value.is_null()) {
+    return RC::SUCCESS;
+  }
+  if (value_.attr_type() == AttrType::UNDEFINED || value.compare(value_) > 0) {
+    value_ = value;
+  }
+  return RC::SUCCESS;
+}
+
+RC MaxAggregator::evaluate(Value &result)
+{
+  if (value_.attr_type() == AttrType::UNDEFINED) {
+    result.set_null();
+    return RC::SUCCESS;
+  }
   result = value_;
   return RC::SUCCESS;
 }

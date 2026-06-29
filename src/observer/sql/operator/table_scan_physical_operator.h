@@ -41,6 +41,7 @@ public:
   RC close() override;
 
   Tuple *current_tuple() override;
+  RC tuple_schema(TupleSchema &schema) const override;
 
   void set_predicates(std::vector<std::unique_ptr<Expression>> &&exprs);
 

@@ -34,6 +34,7 @@ public:
   friend class FloatType;
   friend class BooleanType;
   friend class CharType;
+  friend class DateType;
   friend class VectorType;
 
   Value() = default;
@@ -82,6 +83,10 @@ public:
 
   static RC cast_to(const Value &value, AttrType to_type, Value &result)
   {
+    if (value.attr_type() == AttrType::NULLS) {
+      result = value;
+      return RC::SUCCESS;
+    }
     return DataType::type_instance(value.attr_type())->cast_to(value, to_type, result);
   }
 
@@ -90,6 +95,8 @@ public:
   void set_data(const char *data, int length) { this->set_data(const_cast<char *>(data), length); }
   void set_value(const Value &value);
   void set_boolean(bool val);
+  void set_date(const char *val);
+  void set_null();
 
   string to_string() const;
 
@@ -109,11 +116,13 @@ public:
   float  get_float() const;
   string get_string() const;
   bool   get_boolean() const;
+  bool   is_null() const { return attr_type_ == AttrType::NULLS; }
 
 private:
   void set_int(int val);
   void set_float(float val);
   void set_string(const char *s, int len = 0);
+  void set_date_string(const char *s);
   void set_string_from_other(const Value &other);
 
 private:

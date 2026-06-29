@@ -14,6 +14,8 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include <vector>
+
 #include "common/rc.h"
 #include "sql/stmt/stmt.h"
 
@@ -28,7 +30,7 @@ class InsertStmt : public Stmt
 {
 public:
   InsertStmt() = default;
-  InsertStmt(Table *table, const Value *values, int value_amount);
+  InsertStmt(Table *table, std::vector<std::vector<Value>> value_groups);
 
   StmtType type() const override { return StmtType::INSERT; }
 
@@ -36,12 +38,11 @@ public:
   static RC create(Db *db, const InsertSqlNode &insert_sql, Stmt *&stmt);
 
 public:
-  Table       *table() const { return table_; }
-  const Value *values() const { return values_; }
-  int          value_amount() const { return value_amount_; }
+  Table                                 *table() const { return table_; }
+  const std::vector<std::vector<Value>> &value_groups() const { return value_groups_; }
+  std::vector<std::vector<Value>>       &value_groups() { return value_groups_; }
 
 private:
-  Table       *table_        = nullptr;
-  const Value *values_       = nullptr;
-  int          value_amount_ = 0;
+  Table                          *table_ = nullptr;
+  std::vector<std::vector<Value>> value_groups_;
 };

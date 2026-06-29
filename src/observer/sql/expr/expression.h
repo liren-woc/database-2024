@@ -1,4 +1,4 @@
-/* Copyright (c) 2021 OceanBase and/or its affiliates. All rights reserved.
+﻿/* Copyright (c) 2021 OceanBase and/or its affiliates. All rights reserved.
 miniob is licensed under Mulan PSL v2.
 You can use this software according to the terms and conditions of the Mulan PSL v2.
 You may obtain a copy of Mulan PSL v2 at:
@@ -26,41 +26,42 @@ class Tuple;
 
 /**
  * @defgroup Expression
- * @brief 表达式
+ * @brief 琛ㄨ揪寮?
  */
 
 /**
- * @brief 表达式类型
+ * @brief 琛ㄨ揪寮忕被鍨?
  * @ingroup Expression
  */
 enum class ExprType
 {
   NONE,
-  STAR,                 ///< 星号，表示所有字段
-  UNBOUND_FIELD,        ///< 未绑定的字段，需要在resolver阶段解析为FieldExpr
-  UNBOUND_AGGREGATION,  ///< 未绑定的聚合函数，需要在resolver阶段解析为AggregateExpr
+  STAR,                 ///< 鏄熷彿锛岃〃绀烘墍鏈夊瓧娈?
+  UNBOUND_FIELD,        ///< 鏈粦瀹氱殑瀛楁锛岄渶瑕佸湪resolver闃舵瑙ｆ瀽涓篎ieldExpr
+  UNBOUND_AGGREGATION,  ///< 鏈粦瀹氱殑鑱氬悎鍑芥暟锛岄渶瑕佸湪resolver闃舵瑙ｆ瀽涓篈ggregateExpr
 
-  FIELD,        ///< 字段。在实际执行时，根据行数据内容提取对应字段的值
-  VALUE,        ///< 常量值
-  CAST,         ///< 需要做类型转换的表达式
-  COMPARISON,   ///< 需要做比较的表达式
-  CONJUNCTION,  ///< 多个表达式使用同一种关系(AND或OR)来联结
-  ARITHMETIC,   ///< 算术运算
-  AGGREGATION,  ///< 聚合运算
+  FIELD,        ///< 瀛楁銆傚湪瀹為檯鎵ц鏃讹紝鏍规嵁琛屾暟鎹唴瀹规彁鍙栧搴斿瓧娈电殑鍊?
+  VALUE,        ///< 甯搁噺鍊?
+  CAST,         ///< 闇€瑕佸仛绫诲瀷杞崲鐨勮〃杈惧紡
+  COMPARISON,   ///< 闇€瑕佸仛姣旇緝鐨勮〃杈惧紡
+  CONJUNCTION,  ///< 澶氫釜琛ㄨ揪寮忎娇鐢ㄥ悓涓€绉嶅叧绯?AND鎴朞R)鏉ヨ仈缁?
+  ARITHMETIC,   ///< 绠楁湳杩愮畻
+  AGGREGATION,  ///< 鑱氬悎杩愮畻
+  IN_LIST,
 };
 
 /**
- * @brief 表达式的抽象描述
+ * @brief 琛ㄨ揪寮忕殑鎶借薄鎻忚堪
  * @ingroup Expression
- * @details 在SQL的元素中，任何需要得出值的元素都可以使用表达式来描述
- * 比如获取某个字段的值、比较运算、类型转换
- * 当然还有一些当前没有实现的表达式，比如算术运算。
+ * @details 鍦⊿QL鐨勫厓绱犱腑锛屼换浣曢渶瑕佸緱鍑哄€肩殑鍏冪礌閮藉彲浠ヤ娇鐢ㄨ〃杈惧紡鏉ユ弿杩?
+ * 姣斿鑾峰彇鏌愪釜瀛楁鐨勫€笺€佹瘮杈冭繍绠椼€佺被鍨嬭浆鎹?
+ * 褰撶劧杩樻湁涓€浜涘綋鍓嶆病鏈夊疄鐜扮殑琛ㄨ揪寮忥紝姣斿绠楁湳杩愮畻銆?
  *
- * 通常表达式的值，是在真实的算子运算过程中，拿到具体的tuple后
- * 才能计算出来真实的值。但是有些表达式可能就表示某一个固定的
- * 值，比如ValueExpr。
+ * 閫氬父琛ㄨ揪寮忕殑鍊硷紝鏄湪鐪熷疄鐨勭畻瀛愯繍绠楄繃绋嬩腑锛屾嬁鍒板叿浣撶殑tuple鍚?
+ * 鎵嶈兘璁＄畻鍑烘潵鐪熷疄鐨勫€笺€備絾鏄湁浜涜〃杈惧紡鍙兘灏辫〃绀烘煇涓€涓浐瀹氱殑
+ * 鍊硷紝姣斿ValueExpr銆?
  *
- * TODO 区分unbound和bound的表达式
+ * TODO 鍖哄垎unbound鍜宐ound鐨勮〃杈惧紡
  */
 class Expression
 {
@@ -69,65 +70,65 @@ public:
   virtual ~Expression() = default;
 
   /**
-   * @brief 判断两个表达式是否相等
+   * @brief 鍒ゆ柇涓や釜琛ㄨ揪寮忔槸鍚︾浉绛?
    */
   virtual bool equal(const Expression &other) const { return false; }
   /**
-   * @brief 根据具体的tuple，来计算当前表达式的值。tuple有可能是一个具体某个表的行数据
+   * @brief 鏍规嵁鍏蜂綋鐨則uple锛屾潵璁＄畻褰撳墠琛ㄨ揪寮忕殑鍊笺€倀uple鏈夊彲鑳芥槸涓€涓叿浣撴煇涓〃鐨勮鏁版嵁
    */
   virtual RC get_value(const Tuple &tuple, Value &value) const = 0;
 
   /**
-   * @brief 在没有实际运行的情况下，也就是无法获取tuple的情况下，尝试获取表达式的值
-   * @details 有些表达式的值是固定的，比如ValueExpr，这种情况下可以直接获取值
+   * @brief 鍦ㄦ病鏈夊疄闄呰繍琛岀殑鎯呭喌涓嬶紝涔熷氨鏄棤娉曡幏鍙杢uple鐨勬儏鍐典笅锛屽皾璇曡幏鍙栬〃杈惧紡鐨勫€?
+   * @details 鏈変簺琛ㄨ揪寮忕殑鍊兼槸鍥哄畾鐨勶紝姣斿ValueExpr锛岃繖绉嶆儏鍐典笅鍙互鐩存帴鑾峰彇鍊?
    */
   virtual RC try_get_value(Value &value) const { return RC::UNIMPLEMENTED; }
 
   /**
-   * @brief 从 `chunk` 中获取表达式的计算结果 `column`
+   * @brief 浠?`chunk` 涓幏鍙栬〃杈惧紡鐨勮绠楃粨鏋?`column`
    */
   virtual RC get_column(Chunk &chunk, Column &column) { return RC::UNIMPLEMENTED; }
 
   /**
-   * @brief 表达式的类型
-   * 可以根据表达式类型来转换为具体的子类
+   * @brief 琛ㄨ揪寮忕殑绫诲瀷
+   * 鍙互鏍规嵁琛ㄨ揪寮忕被鍨嬫潵杞崲涓哄叿浣撶殑瀛愮被
    */
   virtual ExprType type() const = 0;
 
   /**
-   * @brief 表达式值的类型
-   * @details 一个表达式运算出结果后，只有一个值
+   * @brief 琛ㄨ揪寮忓€肩殑绫诲瀷
+   * @details 涓€涓〃杈惧紡杩愮畻鍑虹粨鏋滃悗锛屽彧鏈変竴涓€?
    */
   virtual AttrType value_type() const = 0;
 
   /**
-   * @brief 表达式值的长度
+   * @brief 琛ㄨ揪寮忓€肩殑闀垮害
    */
   virtual int value_length() const { return -1; }
 
   /**
-   * @brief 表达式的名字，比如是字段名称，或者用户在执行SQL语句时输入的内容
+   * @brief 琛ㄨ揪寮忕殑鍚嶅瓧锛屾瘮濡傛槸瀛楁鍚嶇О锛屾垨鑰呯敤鎴峰湪鎵цSQL璇彞鏃惰緭鍏ョ殑鍐呭
    */
   virtual const char *name() const { return name_.c_str(); }
   virtual void        set_name(std::string name) { name_ = name; }
 
   /**
-   * @brief 表达式在下层算子返回的 chunk 中的位置
+   * @brief 琛ㄨ揪寮忓湪涓嬪眰绠楀瓙杩斿洖鐨?chunk 涓殑浣嶇疆
    */
   virtual int  pos() const { return pos_; }
   virtual void set_pos(int pos) { pos_ = pos; }
 
   /**
-   * @brief 用于 ComparisonExpr 获得比较结果 `select`。
+   * @brief 鐢ㄤ簬 ComparisonExpr 鑾峰緱姣旇緝缁撴灉 `select`銆?
    */
   virtual RC eval(Chunk &chunk, std::vector<uint8_t> &select) { return RC::UNIMPLEMENTED; }
 
 protected:
   /**
-   * @brief 表达式在下层算子返回的 chunk 中的位置
-   * @details 当 pos_ = -1 时表示下层算子没有在返回的 chunk 中计算出该表达式的计算结果，
-   * 当 pos_ >= 0时表示在下层算子中已经计算出该表达式的值（比如聚合表达式），且该表达式对应的结果位于
-   * chunk 中 下标为 pos_ 的列中。
+   * @brief 琛ㄨ揪寮忓湪涓嬪眰绠楀瓙杩斿洖鐨?chunk 涓殑浣嶇疆
+   * @details 褰?pos_ = -1 鏃惰〃绀轰笅灞傜畻瀛愭病鏈夊湪杩斿洖鐨?chunk 涓绠楀嚭璇ヨ〃杈惧紡鐨勮绠楃粨鏋滐紝
+   * 褰?pos_ >= 0鏃惰〃绀哄湪涓嬪眰绠楀瓙涓凡缁忚绠楀嚭璇ヨ〃杈惧紡鐨勫€硷紙姣斿鑱氬悎琛ㄨ揪寮忥級锛屼笖璇ヨ〃杈惧紡瀵瑰簲鐨勭粨鏋滀綅浜?
+   * chunk 涓?涓嬫爣涓?pos_ 鐨勫垪涓€?
    */
   int pos_ = -1;
 
@@ -145,7 +146,7 @@ public:
   ExprType type() const override { return ExprType::STAR; }
   AttrType value_type() const override { return AttrType::UNDEFINED; }
 
-  RC get_value(const Tuple &tuple, Value &value) const override { return RC::UNIMPLEMENTED; }  // 不需要实现
+  RC get_value(const Tuple &tuple, Value &value) const override { return RC::UNIMPLEMENTED; }  // 涓嶉渶瑕佸疄鐜?
 
   const char *table_name() const { return table_name_.c_str(); }
 
@@ -176,7 +177,7 @@ private:
 };
 
 /**
- * @brief 字段表达式
+ * @brief 瀛楁琛ㄨ揪寮?
  * @ingroup Expression
  */
 class FieldExpr : public Expression
@@ -210,7 +211,7 @@ private:
 };
 
 /**
- * @brief 常量值表达式
+ * @brief 甯搁噺鍊艰〃杈惧紡
  * @ingroup Expression
  */
 class ValueExpr : public Expression
@@ -243,7 +244,7 @@ private:
 };
 
 /**
- * @brief 类型转换表达式
+ * @brief 绫诲瀷杞崲琛ㄨ揪寮?
  * @ingroup Expression
  */
 class CastExpr : public Expression
@@ -266,12 +267,12 @@ private:
   RC cast(const Value &value, Value &cast_value) const;
 
 private:
-  std::unique_ptr<Expression> child_;      ///< 从这个表达式转换
-  AttrType                    cast_type_;  ///< 想要转换成这个类型
+  std::unique_ptr<Expression> child_;      ///< 浠庤繖涓〃杈惧紡杞崲
+  AttrType                    cast_type_;  ///< 鎯宠杞崲鎴愯繖涓被鍨?
 };
 
 /**
- * @brief 比较表达式
+ * @brief 姣旇緝琛ㄨ揪寮?
  * @ingroup Expression
  */
 class ComparisonExpr : public Expression
@@ -286,8 +287,8 @@ public:
   CompOp   comp() const { return comp_; }
 
   /**
-   * @brief 根据 ComparisonExpr 获得 `select` 结果。
-   * select 的长度与chunk 的行数相同，表示每一行在ComparisonExpr 计算后是否会被输出。
+   * @brief 鏍规嵁 ComparisonExpr 鑾峰緱 `select` 缁撴灉銆?
+   * select 鐨勯暱搴︿笌chunk 鐨勮鏁扮浉鍚岋紝琛ㄧず姣忎竴琛屽湪ComparisonExpr 璁＄畻鍚庢槸鍚︿細琚緭鍑恒€?
    */
   RC eval(Chunk &chunk, std::vector<uint8_t> &select) override;
 
@@ -295,8 +296,8 @@ public:
   std::unique_ptr<Expression> &right() { return right_; }
 
   /**
-   * 尝试在没有tuple的情况下获取当前表达式的值
-   * 在优化的时候，可能会使用到
+   * 灏濊瘯鍦ㄦ病鏈塼uple鐨勬儏鍐典笅鑾峰彇褰撳墠琛ㄨ揪寮忕殑鍊?
+   * 鍦ㄤ紭鍖栫殑鏃跺€欙紝鍙兘浼氫娇鐢ㄥ埌
    */
   RC try_get_value(Value &value) const override;
 
@@ -316,10 +317,10 @@ private:
 };
 
 /**
- * @brief 联结表达式
+ * @brief 鑱旂粨琛ㄨ揪寮?
  * @ingroup Expression
- * 多个表达式使用同一种关系(AND或OR)来联结
- * 当前miniob仅有AND操作
+ * 澶氫釜琛ㄨ揪寮忎娇鐢ㄥ悓涓€绉嶅叧绯?AND鎴朞R)鏉ヨ仈缁?
+ * 褰撳墠miniob浠呮湁AND鎿嶄綔
  */
 class ConjunctionExpr : public Expression
 {
@@ -348,9 +349,26 @@ private:
 };
 
 /**
- * @brief 算术表达式
+ * @brief 绠楁湳琛ㄨ揪寮?
  * @ingroup Expression
  */
+class InExpr : public Expression
+{
+public:
+  InExpr(std::unique_ptr<Expression> left, std::vector<Value> values, bool negative)
+      : left_(std::move(left)), values_(std::move(values)), negative_(negative)
+  {}
+
+  ExprType type() const override { return ExprType::IN_LIST; }
+  AttrType value_type() const override { return AttrType::BOOLEANS; }
+  RC       get_value(const Tuple &tuple, Value &value) const override;
+
+private:
+  std::unique_ptr<Expression> left_;
+  std::vector<Value>          values_;
+  bool                        negative_ = false;
+};
+
 class ArithmeticExpr : public Expression
 {
 public:

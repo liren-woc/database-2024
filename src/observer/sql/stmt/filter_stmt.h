@@ -29,6 +29,7 @@ struct FilterObj
   bool  is_attr;
   Field field;
   Value value;
+  std::vector<Value> values;
 
   void init_attr(const Field &field)
   {
@@ -40,6 +41,14 @@ struct FilterObj
   {
     is_attr     = false;
     this->value = value;
+    this->values.clear();
+  }
+
+  void init_values(const std::vector<Value> &values)
+  {
+    is_attr = false;
+    this->values = values;
+    this->value = values.empty() ? Value() : values.front();
   }
 };
 

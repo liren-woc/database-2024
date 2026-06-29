@@ -121,8 +121,20 @@ ComparisonExpr::~ComparisonExpr() {}
 RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &result) const
 {
   RC  rc         = RC::SUCCESS;
-  int cmp_result = left.compare(right);
   result         = false;
+  if (comp_ == IS_NULL) {
+    result = left.is_null();
+    return RC::SUCCESS;
+  }
+  if (comp_ == IS_NOT_NULL) {
+    result = !left.is_null();
+    return RC::SUCCESS;
+  }
+  if (left.is_null() || right.is_null()) {
+    result = false;
+    return RC::SUCCESS;
+  }
+  int cmp_result = left.compare(right);
   switch (comp_) {
     case EQUAL_TO: {
       result = (0 == cmp_result);
@@ -278,6 +290,30 @@ RC ConjunctionExpr::get_value(const Tuple &tuple, Value &value) const
   bool default_value = (conjunction_type_ == Type::AND);
   value.set_boolean(default_value);
   return rc;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+RC InExpr::get_value(const Tuple &tuple, Value &value) const
+{
+  Value left_value;
+  RC rc = left_->get_value(tuple, left_value);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  bool found = false;
+  if (!left_value.is_null()) {
+    for (const Value &candidate : values_) {
+      if (!candidate.is_null() && left_value.compare(candidate) == 0) {
+        found = true;
+        break;
+      }
+    }
+  }
+
+  value.set_boolean(negative_ ? !found : found);
+  return RC::SUCCESS;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -549,8 +585,24 @@ unique_ptr<Aggregator> AggregateExpr::create_aggregator() const
 {
   unique_ptr<Aggregator> aggregator;
   switch (aggregate_type_) {
+    case Type::COUNT: {
+      aggregator = make_unique<CountAggregator>();
+      break;
+    }
     case Type::SUM: {
       aggregator = make_unique<SumAggregator>();
+      break;
+    }
+    case Type::AVG: {
+      aggregator = make_unique<AvgAggregator>();
+      break;
+    }
+    case Type::MAX: {
+      aggregator = make_unique<MaxAggregator>();
+      break;
+    }
+    case Type::MIN: {
+      aggregator = make_unique<MinAggregator>();
       break;
     }
     default: {

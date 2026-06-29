@@ -199,6 +199,10 @@ public:
 
     FieldExpr       *field_expr = speces_[index];
     const FieldMeta *field_meta = field_expr->field().meta();
+    if (field_meta->null_offset() >= 0 && this->record_->data()[field_meta->null_offset()] != 0) {
+      cell.set_null();
+      return RC::SUCCESS;
+    }
     cell.set_type(field_meta->type());
     cell.set_data(this->record_->data() + field_meta->offset(), field_meta->len());
     return RC::SUCCESS;

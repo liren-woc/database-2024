@@ -61,6 +61,16 @@ Tuple *TableScanPhysicalOperator::current_tuple()
   return &tuple_;
 }
 
+RC TableScanPhysicalOperator::tuple_schema(TupleSchema &schema) const
+{
+  const TableMeta &table_meta = table_->table_meta();
+  for (int i = table_meta.sys_field_num(); i < table_meta.field_num(); i++) {
+    const FieldMeta *field_meta = table_meta.field(i);
+    schema.append_cell(table_->name(), field_meta->name());
+  }
+  return RC::SUCCESS;
+}
+
 string TableScanPhysicalOperator::param() const { return table_->name(); }
 
 void TableScanPhysicalOperator::set_predicates(vector<unique_ptr<Expression>> &&exprs)

@@ -251,6 +251,98 @@ RC Table::recover_insert_record(Record &record)
   return rc;
 }
 
+RC Table::update_record(const Record &old_record, Record &new_record)
+{
+  if (old_record.rid() != new_record.rid()) {
+    LOG_WARN("record rid mismatch when updating. old=%s, new=%s",
+             old_record.rid().to_string().c_str(),
+             new_record.rid().to_string().c_str());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  RC rc = delete_entry_of_indexes(old_record.data(), old_record.rid(), true);
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to delete old index entries while updating record. table=%s, rc=%s", name(), strrc(rc));
+    return rc;
+  }
+
+  rc = insert_entry_of_indexes(new_record.data(), new_record.rid());
+  if (OB_FAIL(rc)) {
+    RC rollback_rc = insert_entry_of_indexes(old_record.data(), old_record.rid());
+    if (OB_FAIL(rollback_rc)) {
+      LOG_PANIC("failed to rollback old index entries after update failure. table=%s, rc=%s", name(), strrc(rollback_rc));
+    }
+    LOG_WARN("failed to insert new index entries while updating record. table=%s, rc=%s", name(), strrc(rc));
+    return rc;
+  }
+
+  rc = record_handler_->visit_record(old_record.rid(), [&new_record](Record &record) -> bool {
+    memcpy(record.data(), new_record.data(), new_record.len());
+    return true;
+  });
+  if (OB_FAIL(rc)) {
+    RC rollback_rc = delete_entry_of_indexes(new_record.data(), new_record.rid(), false);
+    if (OB_SUCC(rollback_rc)) {
+      rollback_rc = insert_entry_of_indexes(old_record.data(), old_record.rid());
+    }
+    if (OB_FAIL(rollback_rc)) {
+      LOG_PANIC("failed to rollback indexes after record update failure. table=%s, rc=%s", name(), strrc(rollback_rc));
+    }
+    LOG_WARN("failed to update record body. table=%s, rc=%s", name(), strrc(rc));
+    return rc;
+  }
+
+  return RC::SUCCESS;
+}
+
+RC Table::remove()
+{
+  RC rc = RC::SUCCESS;
+
+  if (record_handler_ != nullptr) {
+    delete record_handler_;
+    record_handler_ = nullptr;
+  }
+
+  if (data_buffer_pool_ != nullptr) {
+    rc = data_buffer_pool_->close_file();
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to close data buffer pool. table=%s, rc=%s", name(), strrc(rc));
+      return rc;
+    }
+    data_buffer_pool_ = nullptr;
+  }
+
+  for (Index *index : indexes_) {
+    delete index;
+  }
+  indexes_.clear();
+
+  std::error_code ec;
+  for (int i = 0; i < table_meta_.index_num(); i++) {
+    const IndexMeta *index_meta = table_meta_.index(i);
+    filesystem::remove(table_index_file(base_dir_.c_str(), name(), index_meta->name()), ec);
+    if (ec) {
+      LOG_WARN("failed to remove index file. table=%s, index=%s, err=%s", name(), index_meta->name(), ec.message().c_str());
+      return RC::IOERR_ACCESS;
+    }
+  }
+
+  filesystem::remove(table_data_file(base_dir_.c_str(), name()), ec);
+  if (ec) {
+    LOG_WARN("failed to remove table data file. table=%s, err=%s", name(), ec.message().c_str());
+    return RC::IOERR_ACCESS;
+  }
+
+  filesystem::remove(table_meta_file(base_dir_.c_str(), name()), ec);
+  if (ec) {
+    LOG_WARN("failed to remove table meta file. table=%s, err=%s", name(), ec.message().c_str());
+    return RC::IOERR_ACCESS;
+  }
+
+  return RC::SUCCESS;
+}
+
 const char *Table::name() const { return table_meta_.name(); }
 
 const TableMeta &Table::table_meta() const { return table_meta_; }
@@ -273,6 +365,20 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
   for (int i = 0; i < value_num && OB_SUCC(rc); i++) {
     const FieldMeta *field = table_meta_.field(i + normal_field_start_index);
     const Value &    value = values[i];
+    if (value.is_null()) {
+      if (!field->nullable()) {
+        LOG_WARN("field does not allow null. table=%s, field=%s", table_meta_.name(), field->name());
+        rc = RC::INVALID_ARGUMENT;
+        break;
+      }
+      if (field->null_offset() >= 0) {
+        record_data[field->null_offset()] = 1;
+      }
+      continue;
+    }
+    if (field->null_offset() >= 0) {
+      record_data[field->null_offset()] = 0;
+    }
     if (field->type() != value.attr_type()) {
       Value real_value;
       rc = Value::cast_to(value, field->type(), real_value);
@@ -298,9 +404,21 @@ RC Table::make_record(int value_num, const Value *values, Record &record)
 
 RC Table::set_value_to_record(char *record_data, const Value &value, const FieldMeta *field)
 {
+  if (value.is_null()) {
+    if (!field->nullable()) {
+      return RC::INVALID_ARGUMENT;
+    }
+    if (field->null_offset() >= 0) {
+      record_data[field->null_offset()] = 1;
+    }
+    return RC::SUCCESS;
+  }
+  if (field->null_offset() >= 0) {
+    record_data[field->null_offset()] = 0;
+  }
   size_t       copy_len = field->len();
   const size_t data_len = value.length();
-  if (field->type() == AttrType::CHARS) {
+  if (field->type() == AttrType::CHARS || field->type() == AttrType::DATES) {
     if (copy_len > data_len) {
       copy_len = data_len + 1;
     }
@@ -353,7 +471,7 @@ RC Table::get_chunk_scanner(ChunkFileScanner &scanner, Trx *trx, ReadWriteMode m
   return rc;
 }
 
-RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name)
+RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name, bool unique)
 {
   if (common::is_blank(index_name) || nullptr == field_meta) {
     LOG_INFO("Invalid input arguments, table name is %s, index_name is blank or attribute_name is blank", name());
@@ -362,7 +480,7 @@ RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_
 
   IndexMeta new_index_meta;
 
-  RC rc = new_index_meta.init(index_name, *field_meta);
+  RC rc = new_index_meta.init(index_name, *field_meta, unique);
   if (rc != RC::SUCCESS) {
     LOG_INFO("Failed to init IndexMeta in table:%s, index_name:%s, field_name:%s", 
              name(), index_name, field_meta->name());

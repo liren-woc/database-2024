@@ -81,9 +81,11 @@ public:
   RC get_record(const RID &rid, Record &record);
 
   RC recover_insert_record(Record &record);
+  RC update_record(const Record &old_record, Record &new_record);
+  RC remove();
 
   // TODO refactor
-  RC create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name);
+  RC create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name, bool unique = false);
 
   RC get_record_scanner(RecordFileScanner &scanner, Trx *trx, ReadWriteMode mode);
 
