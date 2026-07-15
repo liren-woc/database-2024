@@ -47,11 +47,30 @@ RC UpdatePhysicalOperator::open(Trx *trx)
 
   for (Record &record : records) {
     Record new_record(record);
-    if (field_meta_->type() == AttrType::CHARS) {
+
+    if (value_.is_null()) {
+      if (!field_meta_->nullable()) {
+        return RC::INVALID_ARGUMENT;
+      }
+      if (field_meta_->null_offset() >= 0) {
+        new_record.data()[field_meta_->null_offset()] = 1;
+      }
       memset(new_record.data() + field_meta_->offset(), 0, field_meta_->len());
+    } else {
+      if (field_meta_->null_offset() >= 0) {
+        new_record.data()[field_meta_->null_offset()] = 0;
+      }
+      memset(new_record.data() + field_meta_->offset(), 0, field_meta_->len());
+
+      size_t copy_len = field_meta_->len();
+      if (field_meta_->type() == AttrType::CHARS || field_meta_->type() == AttrType::DATES) {
+        copy_len = std::min(copy_len, static_cast<size_t>(value_.length() + 1));
+      } else {
+        copy_len = std::min(copy_len, static_cast<size_t>(value_.length()));
+      }
+      memcpy(new_record.data() + field_meta_->offset(), value_.data(), copy_len);
     }
-    const size_t copy_len = std::min(field_meta_->len(), value_.length());
-    memcpy(new_record.data() + field_meta_->offset(), value_.data(), copy_len);
+
     rc = table_->update_record(record, new_record);
     if (OB_FAIL(rc)) {
       LOG_WARN("failed to update record. table=%s, rc=%s", table_->name(), strrc(rc));

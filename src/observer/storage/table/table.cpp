@@ -612,7 +612,11 @@ RC Table::delete_entry_of_indexes(const char *record, const RID &rid, bool error
   for (Index *index : indexes_) {
     rc = index->delete_entry(record, &rid);
     if (rc != RC::SUCCESS) {
-      if (rc != RC::RECORD_INVALID_KEY || !error_on_not_exists) {
+      if (rc == RC::RECORD_INVALID_KEY && !error_on_not_exists) {
+        rc = RC::SUCCESS;
+        continue;
+      }
+      if (rc != RC::RECORD_INVALID_KEY || error_on_not_exists) {
         break;
       }
     }
