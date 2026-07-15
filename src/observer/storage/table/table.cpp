@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 
 #include <limits.h>
 #include <string.h>
+#include <utility>
 
 #include "common/defs.h"
 #include "common/lang/string.h"
@@ -188,6 +189,12 @@ RC Table::open(Db *db, const char *meta_file, const char *base_dir)
 RC Table::insert_record(Record &record)
 {
   RC rc = RC::SUCCESS;
+  rc    = check_composite_unique_indexes(record.data(), nullptr);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("composite unique constraint failed before insert. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
+    return rc;
+  }
+
   rc    = record_handler_->insert_record(record.data(), table_meta_.record_size(), &record.rid());
   if (rc != RC::SUCCESS) {
     LOG_ERROR("Insert record failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
@@ -229,6 +236,14 @@ RC Table::get_record(const RID &rid, Record &record)
 RC Table::recover_insert_record(Record &record)
 {
   RC rc = RC::SUCCESS;
+  rc    = check_composite_unique_indexes(record.data(), nullptr);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("composite unique constraint failed before recover insert. table name=%s, rc=%s",
+        table_meta_.name(),
+        strrc(rc));
+    return rc;
+  }
+
   rc    = record_handler_->recover_insert_record(record.data(), table_meta_.record_size(), record.rid());
   if (rc != RC::SUCCESS) {
     LOG_ERROR("Insert record failed. table name=%s, rc=%s", table_meta_.name(), strrc(rc));
@@ -260,7 +275,13 @@ RC Table::update_record(const Record &old_record, Record &new_record)
     return RC::INVALID_ARGUMENT;
   }
 
-  RC rc = delete_entry_of_indexes(old_record.data(), old_record.rid(), true);
+  RC rc = check_composite_unique_indexes(new_record.data(), &old_record.rid());
+  if (OB_FAIL(rc)) {
+    LOG_WARN("composite unique constraint failed before update. table=%s, rc=%s", name(), strrc(rc));
+    return rc;
+  }
+
+  rc = delete_entry_of_indexes(old_record.data(), old_record.rid(), true);
   if (OB_FAIL(rc)) {
     LOG_WARN("failed to delete old index entries while updating record. table=%s, rc=%s", name(), strrc(rc));
     return rc;
@@ -569,6 +590,128 @@ RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_
   return rc;
 }
 
+bool Table::composite_key_has_null(const char *record, const vector<const FieldMeta *> &fields) const
+{
+  for (const FieldMeta *field : fields) {
+    if (field->null_offset() >= 0 && record[field->null_offset()] != 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Table::composite_key_equal(const char *left, const char *right, const vector<const FieldMeta *> &fields) const
+{
+  if (composite_key_has_null(left, fields) || composite_key_has_null(right, fields)) {
+    return false;
+  }
+
+  for (const FieldMeta *field : fields) {
+    if (memcmp(left + field->offset(), right + field->offset(), field->len()) != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+RC Table::check_composite_unique_indexes(const char *record, const RID *skip_rid)
+{
+  if (composite_unique_indexes_.empty()) {
+    return RC::SUCCESS;
+  }
+
+  for (const CompositeUniqueIndex &index : composite_unique_indexes_) {
+    if (composite_key_has_null(record, index.fields)) {
+      continue;
+    }
+
+    RecordFileScanner scanner;
+    RC rc = get_record_scanner(scanner, nullptr, ReadWriteMode::READ_ONLY);
+    if (OB_FAIL(rc)) {
+      return rc;
+    }
+
+    Record existing_record;
+    while (OB_SUCC(rc = scanner.next(existing_record))) {
+      if (skip_rid != nullptr && existing_record.rid() == *skip_rid) {
+        continue;
+      }
+      if (composite_key_equal(record, existing_record.data(), index.fields)) {
+        scanner.close_scan();
+        LOG_WARN("composite unique index duplicate. table=%s, index=%s", name(), index.name.c_str());
+        return RC::RECORD_DUPLICATE_KEY;
+      }
+    }
+    scanner.close_scan();
+    if (rc == RC::RECORD_EOF) {
+      rc = RC::SUCCESS;
+    }
+    if (OB_FAIL(rc)) {
+      return rc;
+    }
+  }
+
+  return RC::SUCCESS;
+}
+
+RC Table::create_composite_unique_index(
+    Trx *trx, const vector<const FieldMeta *> &field_metas, const char *index_name)
+{
+  (void)trx;
+  if (common::is_blank(index_name) || field_metas.size() < 2) {
+    return RC::INVALID_ARGUMENT;
+  }
+  if (index_name_exists(index_name)) {
+    return RC::SCHEMA_INDEX_NAME_REPEAT;
+  }
+
+  RecordFileScanner scanner;
+  RC rc = get_record_scanner(scanner, trx, ReadWriteMode::READ_ONLY);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  vector<Record> records;
+  Record         record;
+  while (OB_SUCC(rc = scanner.next(record))) {
+    if (composite_key_has_null(record.data(), field_metas)) {
+      continue;
+    }
+    for (const Record &existing_record : records) {
+      if (composite_key_equal(record.data(), existing_record.data(), field_metas)) {
+        scanner.close_scan();
+        LOG_WARN("failed to create composite unique index because duplicate keys exist. table=%s, index=%s",
+            name(),
+            index_name);
+        return RC::RECORD_DUPLICATE_KEY;
+      }
+    }
+
+    Record copied_record;
+    rc = copied_record.copy_data(record.data(), record.len());
+    if (OB_FAIL(rc)) {
+      scanner.close_scan();
+      return rc;
+    }
+    copied_record.set_rid(record.rid());
+    records.emplace_back(std::move(copied_record));
+  }
+  scanner.close_scan();
+  if (rc == RC::RECORD_EOF) {
+    rc = RC::SUCCESS;
+  }
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  CompositeUniqueIndex index;
+  index.name   = index_name;
+  index.fields = field_metas;
+  composite_unique_indexes_.emplace_back(std::move(index));
+  LOG_INFO("created composite unique index. table=%s, index=%s", name(), index_name);
+  return RC::SUCCESS;
+}
+
 RC Table::delete_record(const RID &rid)
 {
   RC     rc = RC::SUCCESS;
@@ -641,6 +784,19 @@ Index *Table::find_index_by_field(const char *field_name) const
     return this->find_index(index_meta->name());
   }
   return nullptr;
+}
+
+bool Table::index_name_exists(const char *index_name) const
+{
+  if (find_index(index_name) != nullptr) {
+    return true;
+  }
+  for (const CompositeUniqueIndex &index : composite_unique_indexes_) {
+    if (0 == strcmp(index.name.c_str(), index_name)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 RC Table::sync()

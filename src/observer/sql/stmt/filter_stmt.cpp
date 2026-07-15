@@ -107,7 +107,7 @@ static RC condition_match(Db *db, Table *table, const ConditionSqlNode &conditio
   return rc;
 }
 
-static RC eval_simple_subquery(Db *db, const SelectSqlNode &select_sql, vector<Value> &values)
+RC FilterStmt::eval_simple_subquery(Db *db, const SelectSqlNode &select_sql, vector<Value> &values)
 {
   if (select_sql.relations.size() != 1 || select_sql.expressions.size() != 1) {
     return RC::INVALID_ARGUMENT;
@@ -220,7 +220,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   const FieldMeta *left_field_meta  = nullptr;
   const FieldMeta *right_field_meta = nullptr;
   if (condition.right_subquery) {
-    rc = eval_simple_subquery(db, *condition.right_subquery, subquery_values);
+    rc = FilterStmt::eval_simple_subquery(db, *condition.right_subquery, subquery_values);
     if (OB_FAIL(rc)) {
       delete filter_unit;
       filter_unit = nullptr;
@@ -259,6 +259,10 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     FilterObj filter_obj;
     filter_obj.init_values(subquery_values);
     filter_unit->set_right(filter_obj);
+  } else if (!condition.right_values.empty() && (comp == IN_OP || comp == NOT_IN_OP)) {
+    FilterObj filter_obj;
+    filter_obj.init_values(condition.right_values);
+    filter_unit->set_right(filter_obj);
   } else if (condition.right_subquery) {
     FilterObj filter_obj;
     filter_obj.init_value(subquery_values.empty() ? Value() : subquery_values.front());
@@ -281,10 +285,37 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     filter_unit->set_right(filter_obj);
   }
 
-  if (left_field_meta != nullptr && !filter_unit->right().is_attr &&
+  if (left_field_meta != nullptr && !filter_unit->right().is_attr && left_field_meta->type() == AttrType::DATES &&
+      !filter_unit->right().values.empty()) {
+    vector<Value> cast_values;
+    cast_values.reserve(filter_unit->right().values.size());
+    for (const Value &value : filter_unit->right().values) {
+      if (value.attr_type() == AttrType::CHARS) {
+        Value cast_value;
+        rc = Value::cast_to(value, AttrType::DATES, cast_value);
+        if (OB_FAIL(rc)) {
+          delete filter_unit;
+          filter_unit = nullptr;
+          return rc;
+        }
+        cast_values.emplace_back(std::move(cast_value));
+      } else {
+        cast_values.emplace_back(value);
+      }
+    }
+    FilterObj filter_obj;
+    filter_obj.init_values(cast_values);
+    filter_unit->set_right(filter_obj);
+  } else if (left_field_meta != nullptr && !filter_unit->right().is_attr &&
       filter_unit->right().value.attr_type() == AttrType::CHARS && left_field_meta->type() == AttrType::DATES) {
     Value cast_value;
-    if (OB_SUCC(Value::cast_to(filter_unit->right().value, AttrType::DATES, cast_value))) {
+    rc = Value::cast_to(filter_unit->right().value, AttrType::DATES, cast_value);
+    if (OB_FAIL(rc)) {
+      delete filter_unit;
+      filter_unit = nullptr;
+      return rc;
+    }
+    if (OB_SUCC(rc)) {
       FilterObj filter_obj;
       filter_obj.init_value(cast_value);
       filter_unit->set_right(filter_obj);
@@ -293,7 +324,13 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   if (right_field_meta != nullptr && !filter_unit->left().is_attr &&
       filter_unit->left().value.attr_type() == AttrType::CHARS && right_field_meta->type() == AttrType::DATES) {
     Value cast_value;
-    if (OB_SUCC(Value::cast_to(filter_unit->left().value, AttrType::DATES, cast_value))) {
+    rc = Value::cast_to(filter_unit->left().value, AttrType::DATES, cast_value);
+    if (OB_FAIL(rc)) {
+      delete filter_unit;
+      filter_unit = nullptr;
+      return rc;
+    }
+    if (OB_SUCC(rc)) {
       FilterObj filter_obj;
       filter_obj.init_value(cast_value);
       filter_unit->set_left(filter_obj);

@@ -78,6 +78,7 @@ struct ConditionSqlNode
                                  ///< 1时，操作符右边是属性名，0时，是属性值
   RelAttrSqlNode right_attr;     ///< right-hand side attribute if right_is_attr = TRUE 右边的属性
   Value          right_value;    ///< right-hand side value if right_is_attr = FALSE
+  std::vector<Value> right_values;
   std::shared_ptr<SelectSqlNode> right_subquery;
 };
 
@@ -141,6 +142,7 @@ struct UpdateSqlNode
   std::string                   relation_name;   ///< Relation to update
   std::string                   attribute_name;  ///< 更新的字段，仅支持一个字段
   Value                         value;           ///< 更新的值，仅支持一个字段
+  std::shared_ptr<SelectSqlNode> value_subquery;
   std::vector<ConditionSqlNode> conditions;
 };
 

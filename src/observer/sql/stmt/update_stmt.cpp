@@ -11,6 +11,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/stmt/update_stmt.h"
 
 #include <unordered_map>
+#include <vector>
 
 #include "common/log/log.h"
 #include "sql/stmt/filter_stmt.h"
@@ -65,6 +66,23 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update, Stmt *&stmt)
   }
 
   Value value = update.value;
+  if (update.value_subquery) {
+    std::vector<Value> values;
+    rc = FilterStmt::eval_simple_subquery(db, *update.value_subquery, values);
+    if (OB_FAIL(rc)) {
+      delete filter_stmt;
+      LOG_WARN("failed to evaluate update subquery. table=%s, rc=%s", table_name, strrc(rc));
+      return rc;
+    }
+    if (values.size() != 1) {
+      delete filter_stmt;
+      LOG_WARN("update subquery should return exactly one value. table=%s, size=%d",
+          table_name,
+          static_cast<int>(values.size()));
+      return RC::INVALID_ARGUMENT;
+    }
+    value = values.front();
+  }
   if (value.attr_type() != field_meta->type()) {
     Value cast_value;
     rc = Value::cast_to(value, field_meta->type(), cast_value);

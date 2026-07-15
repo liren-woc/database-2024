@@ -86,6 +86,8 @@ public:
 
   // TODO refactor
   RC create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name, bool unique = false);
+  RC create_composite_unique_index(
+      Trx *trx, const vector<const FieldMeta *> &field_metas, const char *index_name);
 
   RC get_record_scanner(RecordFileScanner &scanner, Trx *trx, ReadWriteMode mode);
 
@@ -123,12 +125,24 @@ private:
 public:
   Index *find_index(const char *index_name) const;
   Index *find_index_by_field(const char *field_name) const;
+  bool   index_name_exists(const char *index_name) const;
 
 private:
+  struct CompositeUniqueIndex
+  {
+    string                    name;
+    vector<const FieldMeta *> fields;
+  };
+
+  bool composite_key_has_null(const char *record, const vector<const FieldMeta *> &fields) const;
+  bool composite_key_equal(const char *left, const char *right, const vector<const FieldMeta *> &fields) const;
+  RC   check_composite_unique_indexes(const char *record, const RID *skip_rid);
+
   Db                *db_ = nullptr;
   string             base_dir_;
   TableMeta          table_meta_;
   DiskBufferPool    *data_buffer_pool_ = nullptr;  /// 数据文件关联的buffer pool
   RecordFileHandler *record_handler_   = nullptr;  /// 记录操作
   vector<Index *>    indexes_;
+  vector<CompositeUniqueIndex> composite_unique_indexes_;
 };

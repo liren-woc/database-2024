@@ -506,6 +506,20 @@ update_stmt:      /*  update 语句的语法解析树*/
       free($2);
       free($4);
     }
+    | UPDATE ID SET ID EQ LBRACE select_stmt RBRACE where
+    {
+      $$ = new ParsedSqlNode(SCF_UPDATE);
+      $$->update.relation_name = $2;
+      $$->update.attribute_name = $4;
+      $$->update.value_subquery = std::make_shared<SelectSqlNode>(std::move($7->selection));
+      if ($9 != nullptr) {
+        $$->update.conditions.swap(*$9);
+        delete $9;
+      }
+      free($2);
+      free($4);
+      delete $7;
+    }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
     SELECT expression_list FROM rel_list where group_by order_by
@@ -607,6 +621,12 @@ expression:
     }
     | ID LBRACE expression RBRACE {
       $$ = create_aggregate_expression($1, $3, sql_string, &@$);
+      free($1);
+    }
+    | ID LBRACE expression COMMA expression RBRACE {
+      delete $3;
+      delete $5;
+      $$ = create_aggregate_expression("__invalid_aggregate__", new ValueExpr(Value(0)), sql_string, &@$);
       free($1);
     }
     ;
@@ -774,6 +794,22 @@ condition:
       delete $1;
       delete $4;
     }
+    | rel_attr IN LBRACE value value_list RBRACE
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_is_attr = 1;
+      $$->left_attr = *$1;
+      $$->right_is_attr = 0;
+      $$->comp = IN_OP;
+      if ($5 != nullptr) {
+        $$->right_values.swap(*$5);
+        delete $5;
+      }
+      $$->right_values.emplace_back(*$4);
+      std::reverse($$->right_values.begin(), $$->right_values.end());
+      delete $1;
+      delete $4;
+    }
     | rel_attr NOT IN LBRACE select_stmt RBRACE
     {
       $$ = new ConditionSqlNode;
@@ -782,6 +818,22 @@ condition:
       $$->right_is_attr = 0;
       $$->comp = NOT_IN_OP;
       $$->right_subquery = std::make_shared<SelectSqlNode>(std::move($5->selection));
+      delete $1;
+      delete $5;
+    }
+    | rel_attr NOT IN LBRACE value value_list RBRACE
+    {
+      $$ = new ConditionSqlNode;
+      $$->left_is_attr = 1;
+      $$->left_attr = *$1;
+      $$->right_is_attr = 0;
+      $$->comp = NOT_IN_OP;
+      if ($6 != nullptr) {
+        $$->right_values.swap(*$6);
+        delete $6;
+      }
+      $$->right_values.emplace_back(*$5);
+      std::reverse($$->right_values.begin(), $$->right_values.end());
       delete $1;
       delete $5;
     }
