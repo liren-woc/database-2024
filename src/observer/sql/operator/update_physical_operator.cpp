@@ -37,7 +37,16 @@ RC UpdatePhysicalOperator::open(Trx *trx)
       return RC::INTERNAL;
     }
     RowTuple *row_tuple = static_cast<RowTuple *>(tuple);
-    records.emplace_back(row_tuple->record());
+
+    Record record;
+    rc = record.copy_data(row_tuple->record().data(), row_tuple->record().len());
+    if (OB_FAIL(rc)) {
+      child->close();
+      LOG_WARN("failed to copy record before update. rc=%s", strrc(rc));
+      return rc;
+    }
+    record.set_rid(row_tuple->record().rid());
+    records.emplace_back(std::move(record));
   }
   child->close();
   if (rc != RC::RECORD_EOF) {

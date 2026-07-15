@@ -84,6 +84,21 @@ RC NestedLoopJoinPhysicalOperator::close()
 
 Tuple *NestedLoopJoinPhysicalOperator::current_tuple() { return &joined_tuple_; }
 
+RC NestedLoopJoinPhysicalOperator::tuple_schema(TupleSchema &schema) const
+{
+  if (children_.size() != 2) {
+    LOG_WARN("nlj operator should have 2 children");
+    return RC::INTERNAL;
+  }
+
+  RC rc = children_[0]->tuple_schema(schema);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  return children_[1]->tuple_schema(schema);
+}
+
 RC NestedLoopJoinPhysicalOperator::left_next()
 {
   RC rc = RC::SUCCESS;

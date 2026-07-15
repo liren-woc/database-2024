@@ -216,7 +216,9 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
   }
 
   filter_unit = new FilterUnit;
-  vector<Value> subquery_values;
+  vector<Value>    subquery_values;
+  const FieldMeta *left_field_meta  = nullptr;
+  const FieldMeta *right_field_meta = nullptr;
   if (condition.right_subquery) {
     rc = eval_simple_subquery(db, *condition.right_subquery, subquery_values);
     if (OB_FAIL(rc)) {
@@ -243,6 +245,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       LOG_WARN("cannot find attr");
       return rc;
     }
+    left_field_meta = field;
     FilterObj filter_obj;
     filter_obj.init_attr(Field(table, field));
     filter_unit->set_left(filter_obj);
@@ -268,6 +271,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       LOG_WARN("cannot find attr");
       return rc;
     }
+    right_field_meta = field;
     FilterObj filter_obj;
     filter_obj.init_attr(Field(table, field));
     filter_unit->set_right(filter_obj);
@@ -275,6 +279,25 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     FilterObj filter_obj;
     filter_obj.init_value(condition.right_value);
     filter_unit->set_right(filter_obj);
+  }
+
+  if (left_field_meta != nullptr && !filter_unit->right().is_attr &&
+      filter_unit->right().value.attr_type() == AttrType::CHARS && left_field_meta->type() == AttrType::DATES) {
+    Value cast_value;
+    if (OB_SUCC(Value::cast_to(filter_unit->right().value, AttrType::DATES, cast_value))) {
+      FilterObj filter_obj;
+      filter_obj.init_value(cast_value);
+      filter_unit->set_right(filter_obj);
+    }
+  }
+  if (right_field_meta != nullptr && !filter_unit->left().is_attr &&
+      filter_unit->left().value.attr_type() == AttrType::CHARS && right_field_meta->type() == AttrType::DATES) {
+    Value cast_value;
+    if (OB_SUCC(Value::cast_to(filter_unit->left().value, AttrType::DATES, cast_value))) {
+      FilterObj filter_obj;
+      filter_obj.init_value(cast_value);
+      filter_unit->set_left(filter_obj);
+    }
   }
 
   filter_unit->set_comp(comp);
