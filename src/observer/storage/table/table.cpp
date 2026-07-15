@@ -590,24 +590,24 @@ RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_
   return rc;
 }
 
-bool Table::composite_key_has_null(const char *record, const vector<const FieldMeta *> &fields) const
+bool Table::composite_key_has_null(const char *record, const vector<FieldMeta> &fields) const
 {
-  for (const FieldMeta *field : fields) {
-    if (field->null_offset() >= 0 && record[field->null_offset()] != 0) {
+  for (const FieldMeta &field : fields) {
+    if (field.null_offset() >= 0 && record[field.null_offset()] != 0) {
       return true;
     }
   }
   return false;
 }
 
-bool Table::composite_key_equal(const char *left, const char *right, const vector<const FieldMeta *> &fields) const
+bool Table::composite_key_equal(const char *left, const char *right, const vector<FieldMeta> &fields) const
 {
   if (composite_key_has_null(left, fields) || composite_key_has_null(right, fields)) {
     return false;
   }
 
-  for (const FieldMeta *field : fields) {
-    if (memcmp(left + field->offset(), right + field->offset(), field->len()) != 0) {
+  for (const FieldMeta &field : fields) {
+    if (memcmp(left + field.offset(), right + field.offset(), field.len()) != 0) {
       return false;
     }
   }
@@ -671,14 +671,24 @@ RC Table::create_composite_unique_index(
     return rc;
   }
 
+  vector<FieldMeta> field_meta_copies;
+  field_meta_copies.reserve(field_metas.size());
+  for (const FieldMeta *field_meta : field_metas) {
+    if (field_meta == nullptr) {
+      scanner.close_scan();
+      return RC::INVALID_ARGUMENT;
+    }
+    field_meta_copies.emplace_back(*field_meta);
+  }
+
   vector<Record> records;
   Record         record;
   while (OB_SUCC(rc = scanner.next(record))) {
-    if (composite_key_has_null(record.data(), field_metas)) {
+    if (composite_key_has_null(record.data(), field_meta_copies)) {
       continue;
     }
     for (const Record &existing_record : records) {
-      if (composite_key_equal(record.data(), existing_record.data(), field_metas)) {
+      if (composite_key_equal(record.data(), existing_record.data(), field_meta_copies)) {
         scanner.close_scan();
         LOG_WARN("failed to create composite unique index because duplicate keys exist. table=%s, index=%s",
             name(),
@@ -706,7 +716,7 @@ RC Table::create_composite_unique_index(
 
   CompositeUniqueIndex index;
   index.name   = index_name;
-  index.fields = field_metas;
+  index.fields = std::move(field_meta_copies);
   composite_unique_indexes_.emplace_back(std::move(index));
   LOG_INFO("created composite unique index. table=%s, index=%s", name(), index_name);
   return RC::SUCCESS;

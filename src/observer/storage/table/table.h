@@ -130,12 +130,12 @@ public:
 private:
   struct CompositeUniqueIndex
   {
-    string                    name;
-    vector<const FieldMeta *> fields;
+    string            name;
+    vector<FieldMeta> fields;
   };
 
-  bool composite_key_has_null(const char *record, const vector<const FieldMeta *> &fields) const;
-  bool composite_key_equal(const char *left, const char *right, const vector<const FieldMeta *> &fields) const;
+  bool composite_key_has_null(const char *record, const vector<FieldMeta> &fields) const;
+  bool composite_key_equal(const char *left, const char *right, const vector<FieldMeta> &fields) const;
   RC   check_composite_unique_indexes(const char *record, const RID *skip_rid);
 
   Db                *db_ = nullptr;

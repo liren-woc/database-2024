@@ -623,6 +623,10 @@ expression:
       $$ = create_aggregate_expression($1, $3, sql_string, &@$);
       free($1);
     }
+    | ID LBRACE RBRACE {
+      $$ = create_aggregate_expression("__invalid_aggregate__", new ValueExpr(Value(0)), sql_string, &@$);
+      free($1);
+    }
     | ID LBRACE expression COMMA expression RBRACE {
       delete $3;
       delete $5;

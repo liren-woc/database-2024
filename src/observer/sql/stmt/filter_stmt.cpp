@@ -107,6 +107,17 @@ static RC condition_match(Db *db, Table *table, const ConditionSqlNode &conditio
   return rc;
 }
 
+static Value scalar_subquery_value(const vector<Value> &values)
+{
+  if (!values.empty()) {
+    return values.front();
+  }
+
+  Value value;
+  value.set_null();
+  return value;
+}
+
 RC FilterStmt::eval_simple_subquery(Db *db, const SelectSqlNode &select_sql, vector<Value> &values)
 {
   if (select_sql.relations.size() != 1 || select_sql.expressions.size() != 1) {
@@ -226,7 +237,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
       filter_unit = nullptr;
       return rc;
     }
-    if (comp != IN_OP && comp != NOT_IN_OP && subquery_values.size() != 1) {
+    if (comp != IN_OP && comp != NOT_IN_OP && subquery_values.size() > 1) {
       delete filter_unit;
       filter_unit = nullptr;
       return RC::INVALID_ARGUMENT;
@@ -235,7 +246,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
 
   if (condition.right_subquery && !condition.left_is_attr && condition.right_is_attr) {
     FilterObj filter_obj;
-    filter_obj.init_value(subquery_values.empty() ? Value() : subquery_values.front());
+    filter_obj.init_value(scalar_subquery_value(subquery_values));
     filter_unit->set_left(filter_obj);
   } else if (condition.left_is_attr) {
     Table           *table = nullptr;
@@ -265,7 +276,7 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     filter_unit->set_right(filter_obj);
   } else if (condition.right_subquery) {
     FilterObj filter_obj;
-    filter_obj.init_value(subquery_values.empty() ? Value() : subquery_values.front());
+    filter_obj.init_value(scalar_subquery_value(subquery_values));
     filter_unit->set_right(filter_obj);
   } else if (condition.right_is_attr) {
     Table           *table = nullptr;

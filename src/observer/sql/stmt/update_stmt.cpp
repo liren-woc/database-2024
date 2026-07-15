@@ -74,14 +74,18 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update, Stmt *&stmt)
       LOG_WARN("failed to evaluate update subquery. table=%s, rc=%s", table_name, strrc(rc));
       return rc;
     }
-    if (values.size() != 1) {
+    if (values.size() > 1) {
       delete filter_stmt;
-      LOG_WARN("update subquery should return exactly one value. table=%s, size=%d",
+      LOG_WARN("update subquery should return at most one value. table=%s, size=%d",
           table_name,
           static_cast<int>(values.size()));
       return RC::INVALID_ARGUMENT;
     }
-    value = values.front();
+    if (values.empty()) {
+      value.set_null();
+    } else {
+      value = values.front();
+    }
   }
   if (value.attr_type() != field_meta->type()) {
     Value cast_value;
