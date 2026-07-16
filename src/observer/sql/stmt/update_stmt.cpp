@@ -11,6 +11,7 @@ See the Mulan PSL v2 for more details. */
 #include "sql/stmt/update_stmt.h"
 
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/log/log.h"
@@ -18,8 +19,11 @@ See the Mulan PSL v2 for more details. */
 #include "storage/db/db.h"
 #include "storage/table/table.h"
 
-UpdateStmt::UpdateStmt(Table *table, const FieldMeta *field_meta, Value value, FilterStmt *filter_stmt)
-    : table_(table), field_meta_(field_meta), value_(std::move(value)), filter_stmt_(filter_stmt)
+UpdateStmt::UpdateStmt(Table *table,
+    std::vector<const FieldMeta *> field_metas,
+    std::vector<Value> values,
+    FilterStmt *filter_stmt)
+    : table_(table), field_metas_(std::move(field_metas)), values_(std::move(values)), filter_stmt_(filter_stmt)
 {}
 
 UpdateStmt::~UpdateStmt()
@@ -44,12 +48,6 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update, Stmt *&stmt)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  const FieldMeta *field_meta = table->table_meta().field(update.attribute_name.c_str());
-  if (field_meta == nullptr) {
-    LOG_WARN("no such field in table. table=%s, field=%s", table_name, update.attribute_name.c_str());
-    return RC::SCHEMA_FIELD_NOT_EXIST;
-  }
-
   std::unordered_map<std::string, Table *> table_map;
   table_map.emplace(table_name, table);
 
@@ -65,39 +63,65 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update, Stmt *&stmt)
     return rc;
   }
 
-  Value value = update.value;
-  if (update.value_subquery) {
-    std::vector<Value> values;
-    rc = FilterStmt::eval_simple_subquery(db, *update.value_subquery, values);
-    if (OB_FAIL(rc)) {
-      delete filter_stmt;
-      LOG_WARN("failed to evaluate update subquery. table=%s, rc=%s", table_name, strrc(rc));
-      return rc;
-    }
-    if (values.size() > 1) {
-      delete filter_stmt;
-      LOG_WARN("update subquery should return at most one value. table=%s, size=%d",
-          table_name,
-          static_cast<int>(values.size()));
-      return RC::INVALID_ARGUMENT;
-    }
-    if (values.empty()) {
-      value.set_null();
-    } else {
-      value = values.front();
-    }
-  }
-  if (value.attr_type() != field_meta->type()) {
-    Value cast_value;
-    rc = Value::cast_to(value, field_meta->type(), cast_value);
-    if (OB_FAIL(rc)) {
-      delete filter_stmt;
-      LOG_WARN("failed to cast update value. table=%s, field=%s, rc=%s", table_name, field_meta->name(), strrc(rc));
-      return rc;
-    }
-    value = cast_value;
+  std::vector<UpdateValueSqlNode> assignments = update.values;
+  if (assignments.empty()) {
+    UpdateValueSqlNode assignment;
+    assignment.attribute_name  = update.attribute_name;
+    assignment.value           = update.value;
+    assignment.value_subquery  = update.value_subquery;
+    assignments.emplace_back(std::move(assignment));
   }
 
-  stmt = new UpdateStmt(table, field_meta, value, filter_stmt);
+  std::vector<const FieldMeta *> field_metas;
+  std::vector<Value>             values;
+  field_metas.reserve(assignments.size());
+  values.reserve(assignments.size());
+
+  for (const UpdateValueSqlNode &assignment : assignments) {
+    const FieldMeta *field_meta = table->table_meta().field(assignment.attribute_name.c_str());
+    if (field_meta == nullptr) {
+      delete filter_stmt;
+      LOG_WARN("no such field in table. table=%s, field=%s", table_name, assignment.attribute_name.c_str());
+      return RC::SCHEMA_FIELD_NOT_EXIST;
+    }
+
+    Value value = assignment.value;
+    if (assignment.value_subquery) {
+      std::vector<Value> subquery_values;
+      rc = FilterStmt::eval_simple_subquery(db, *assignment.value_subquery, subquery_values);
+      if (OB_FAIL(rc)) {
+        delete filter_stmt;
+        LOG_WARN("failed to evaluate update subquery. table=%s, rc=%s", table_name, strrc(rc));
+        return rc;
+      }
+      if (subquery_values.size() > 1) {
+        delete filter_stmt;
+        LOG_WARN("update subquery should return at most one value. table=%s, size=%d",
+            table_name,
+            static_cast<int>(subquery_values.size()));
+        return RC::INVALID_ARGUMENT;
+      }
+      if (subquery_values.empty()) {
+        value.set_null();
+      } else {
+        value = subquery_values.front();
+      }
+    }
+    if (value.attr_type() != field_meta->type()) {
+      Value cast_value;
+      rc = Value::cast_to(value, field_meta->type(), cast_value);
+      if (OB_FAIL(rc)) {
+        delete filter_stmt;
+        LOG_WARN("failed to cast update value. table=%s, field=%s, rc=%s", table_name, field_meta->name(), strrc(rc));
+        return rc;
+      }
+      value = cast_value;
+    }
+
+    field_metas.emplace_back(field_meta);
+    values.emplace_back(std::move(value));
+  }
+
+  stmt = new UpdateStmt(table, std::move(field_metas), std::move(values), filter_stmt);
   return RC::SUCCESS;
 }

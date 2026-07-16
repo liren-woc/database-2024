@@ -321,7 +321,7 @@ RC PhysicalPlanGenerator::create_plan(UpdateLogicalOperator &update_oper, unique
     }
   }
 
-  auto *update_phy_oper = new UpdatePhysicalOperator(update_oper.table(), update_oper.field_meta(), update_oper.value());
+  auto *update_phy_oper = new UpdatePhysicalOperator(update_oper.table(), update_oper.field_metas(), update_oper.values());
   if (child_physical_oper) {
     update_phy_oper->add_child(std::move(child_physical_oper));
   }

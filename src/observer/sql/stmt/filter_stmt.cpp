@@ -274,6 +274,18 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, std::unordered_m
     FilterObj filter_obj;
     filter_obj.init_values(condition.right_values);
     filter_unit->set_right(filter_obj);
+  } else if (condition.right_subquery && !condition.left_is_attr && condition.right_is_attr) {
+    Table           *table = nullptr;
+    const FieldMeta *field = nullptr;
+    rc                     = get_table_and_field(db, default_table, tables, condition.right_attr, table, field);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("cannot find attr");
+      return rc;
+    }
+    right_field_meta = field;
+    FilterObj filter_obj;
+    filter_obj.init_attr(Field(table, field));
+    filter_unit->set_right(filter_obj);
   } else if (condition.right_subquery) {
     FilterObj filter_obj;
     filter_obj.init_value(scalar_subquery_value(subquery_values));

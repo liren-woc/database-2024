@@ -130,6 +130,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   Value *                                    value;
   enum CompOp                                comp;
   RelAttrSqlNode *                           rel_attr;
+  UpdateValueSqlNode *                       update_value;
   std::vector<AttrInfoSqlNode> *             attr_infos;
   AttrInfoSqlNode *                          attr_info;
   Expression *                               expression;
@@ -137,6 +138,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   std::vector<int> *                         number_list;
   std::vector<Value> *                       value_list;
   std::vector<ConditionSqlNode> *            condition_list;
+  std::vector<UpdateValueSqlNode> *          update_value_list;
   std::vector<RelAttrSqlNode> *              rel_attr_list;
   std::vector<std::string> *                 relation_list;
   char *                                     string;
@@ -153,6 +155,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 /** type 定义了各种解析后的结果输出的是什么类型。类型对应了 union 中的定义的成员变量名称 **/
 %type <number>              type
 %type <condition>           condition
+%type <update_value>        update_value
 %type <value>               value
 %type <number>              number
 %type <string>              relation
@@ -164,6 +167,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <value_list>          value_list
 %type <condition_list>      where
 %type <condition_list>      condition_list
+%type <update_value_list>   update_value_list
 %type <string>              storage_format
 %type <relation_list>       rel_list
 %type <relation_list>       index_attr_list
@@ -493,32 +497,58 @@ delete_stmt:    /*  delete 语句的语法解析树*/
     }
     ;
 update_stmt:      /*  update 语句的语法解析树*/
-    UPDATE ID SET ID EQ value where 
+    UPDATE ID SET update_value update_value_list where
     {
       $$ = new ParsedSqlNode(SCF_UPDATE);
       $$->update.relation_name = $2;
-      $$->update.attribute_name = $4;
-      $$->update.value = *$6;
-      if ($7 != nullptr) {
-        $$->update.conditions.swap(*$7);
-        delete $7;
+      $$->update.attribute_name = $4->attribute_name;
+      $$->update.value = $4->value;
+      $$->update.value_subquery = $4->value_subquery;
+      $$->update.values.emplace_back(*$4);
+      if ($5 != nullptr) {
+        $$->update.values.insert($$->update.values.end(), $5->begin(), $5->end());
+        delete $5;
+      }
+      if ($6 != nullptr) {
+        $$->update.conditions.swap(*$6);
+        delete $6;
       }
       free($2);
-      free($4);
+      delete $4;
     }
-    | UPDATE ID SET ID EQ LBRACE select_stmt RBRACE where
+    ;
+update_value:
+    ID EQ value
     {
-      $$ = new ParsedSqlNode(SCF_UPDATE);
-      $$->update.relation_name = $2;
-      $$->update.attribute_name = $4;
-      $$->update.value_subquery = std::make_shared<SelectSqlNode>(std::move($7->selection));
-      if ($9 != nullptr) {
-        $$->update.conditions.swap(*$9);
-        delete $9;
+      $$ = new UpdateValueSqlNode;
+      $$->attribute_name = $1;
+      $$->value = *$3;
+      free($1);
+      delete $3;
+    }
+    | ID EQ LBRACE select_stmt RBRACE
+    {
+      $$ = new UpdateValueSqlNode;
+      $$->attribute_name = $1;
+      $$->value_subquery = std::make_shared<SelectSqlNode>(std::move($4->selection));
+      free($1);
+      delete $4;
+    }
+    ;
+update_value_list:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | COMMA update_value update_value_list
+    {
+      if ($3 != nullptr) {
+        $$ = $3;
+      } else {
+        $$ = new std::vector<UpdateValueSqlNode>;
       }
-      free($2);
-      free($4);
-      delete $7;
+      $$->insert($$->begin(), *$2);
+      delete $2;
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/

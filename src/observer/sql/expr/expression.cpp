@@ -209,6 +209,11 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
   return rc;
 }
 
+static bool is_numeric_attr_type(AttrType type)
+{
+  return type == AttrType::INTS || type == AttrType::FLOATS;
+}
+
 RC ComparisonExpr::eval(Chunk &chunk, std::vector<uint8_t> &select)
 {
   RC     rc = RC::SUCCESS;
@@ -226,6 +231,9 @@ RC ComparisonExpr::eval(Chunk &chunk, std::vector<uint8_t> &select)
     return rc;
   }
   if (left_column.attr_type() != right_column.attr_type()) {
+    if (is_numeric_attr_type(left_column.attr_type()) && is_numeric_attr_type(right_column.attr_type())) {
+      return compare_numeric_column(left_column, right_column, select);
+    }
     LOG_WARN("cannot compare columns with different types");
     return RC::INTERNAL;
   }
@@ -239,6 +247,28 @@ RC ComparisonExpr::eval(Chunk &chunk, std::vector<uint8_t> &select)
     return RC::INTERNAL;
   }
   return rc;
+}
+
+RC ComparisonExpr::compare_numeric_column(const Column &left, const Column &right, std::vector<uint8_t> &result) const
+{
+  bool left_const  = left.column_type() == Column::Type::CONSTANT_COLUMN;
+  bool right_const = right.column_type() == Column::Type::CONSTANT_COLUMN;
+  int  count       = left_const ? right.count() : left.count();
+  if (left_const && right_const) {
+    count = 1;
+  }
+
+  for (int i = 0; i < count; i++) {
+    Value left_value  = left.get_value(left_const ? 0 : i);
+    Value right_value = right.get_value(right_const ? 0 : i);
+    bool  matched     = false;
+    RC    rc          = compare_value(left_value, right_value, matched);
+    if (OB_FAIL(rc)) {
+      return rc;
+    }
+    result[i] &= matched ? 1 : 0;
+  }
+  return RC::SUCCESS;
 }
 
 template <typename T>

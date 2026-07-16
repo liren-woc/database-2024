@@ -309,6 +309,7 @@ public:
 
   template <typename T>
   RC compare_column(const Column &left, const Column &right, std::vector<uint8_t> &result) const;
+  RC compare_numeric_column(const Column &left, const Column &right, std::vector<uint8_t> &result) const;
 
 private:
   CompOp                      comp_;
@@ -464,8 +465,28 @@ public:
 
   ExprType type() const override { return ExprType::AGGREGATION; }
 
-  AttrType value_type() const override { return child_->value_type(); }
-  int      value_length() const override { return child_->value_length(); }
+  AttrType value_type() const override
+  {
+    switch (aggregate_type_) {
+      case Type::COUNT: return AttrType::INTS;
+      case Type::AVG: return AttrType::FLOATS;
+      case Type::SUM:
+      case Type::MAX:
+      case Type::MIN: return child_->value_type();
+    }
+    return AttrType::UNDEFINED;
+  }
+  int value_length() const override
+  {
+    switch (aggregate_type_) {
+      case Type::COUNT: return sizeof(int);
+      case Type::AVG: return sizeof(float);
+      case Type::SUM:
+      case Type::MAX:
+      case Type::MIN: return child_->value_length();
+    }
+    return -1;
+  }
 
   RC get_value(const Tuple &tuple, Value &value) const override;
 

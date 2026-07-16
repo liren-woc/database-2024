@@ -11,6 +11,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include <utility>
+#include <vector>
 
 #include "sql/operator/physical_operator.h"
 
@@ -20,8 +21,8 @@ class FieldMeta;
 class UpdatePhysicalOperator : public PhysicalOperator
 {
 public:
-  UpdatePhysicalOperator(Table *table, const FieldMeta *field_meta, Value value)
-      : table_(table), field_meta_(field_meta), value_(std::move(value))
+  UpdatePhysicalOperator(Table *table, std::vector<const FieldMeta *> field_metas, std::vector<Value> values)
+      : table_(table), field_metas_(std::move(field_metas)), values_(std::move(values))
   {}
 
   PhysicalOperatorType type() const override { return PhysicalOperatorType::UPDATE; }
@@ -33,6 +34,6 @@ public:
 
 private:
   Table *table_ = nullptr;
-  const FieldMeta *field_meta_ = nullptr;
-  Value value_;
+  std::vector<const FieldMeta *> field_metas_;
+  std::vector<Value> values_;
 };

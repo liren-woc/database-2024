@@ -11,6 +11,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include <utility>
+#include <vector>
 
 #include "sql/operator/logical_operator.h"
 
@@ -20,17 +21,19 @@ class FieldMeta;
 class UpdateLogicalOperator : public LogicalOperator
 {
 public:
-  UpdateLogicalOperator(Table *table, const FieldMeta *field_meta, Value value)
-      : table_(table), field_meta_(field_meta), value_(std::move(value))
+  UpdateLogicalOperator(Table *table, std::vector<const FieldMeta *> field_metas, std::vector<Value> values)
+      : table_(table), field_metas_(std::move(field_metas)), values_(std::move(values))
   {}
 
   LogicalOperatorType type() const override { return LogicalOperatorType::UPDATE; }
   Table *table() const { return table_; }
-  const FieldMeta *field_meta() const { return field_meta_; }
-  const Value &value() const { return value_; }
+  const std::vector<const FieldMeta *> &field_metas() const { return field_metas_; }
+  const std::vector<Value> &values() const { return values_; }
+  const FieldMeta *field_meta() const { return field_metas_.front(); }
+  const Value &value() const { return values_.front(); }
 
 private:
   Table *table_ = nullptr;
-  const FieldMeta *field_meta_ = nullptr;
-  Value value_;
+  std::vector<const FieldMeta *> field_metas_;
+  std::vector<Value> values_;
 };

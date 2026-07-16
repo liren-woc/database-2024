@@ -21,6 +21,9 @@ RC UpdatePhysicalOperator::open(Trx *trx)
   if (children_.empty()) {
     return RC::SUCCESS;
   }
+  if (field_metas_.size() != values_.size()) {
+    return RC::INTERNAL;
+  }
 
   auto &child = children_[0];
   RC rc = child->open(trx);
@@ -57,27 +60,31 @@ RC UpdatePhysicalOperator::open(Trx *trx)
   for (Record &record : records) {
     Record new_record(record);
 
-    if (value_.is_null()) {
-      if (!field_meta_->nullable()) {
-        return RC::INVALID_ARGUMENT;
-      }
-      if (field_meta_->null_offset() >= 0) {
-        new_record.data()[field_meta_->null_offset()] = 1;
-      }
-      memset(new_record.data() + field_meta_->offset(), 0, field_meta_->len());
-    } else {
-      if (field_meta_->null_offset() >= 0) {
-        new_record.data()[field_meta_->null_offset()] = 0;
-      }
-      memset(new_record.data() + field_meta_->offset(), 0, field_meta_->len());
-
-      size_t copy_len = field_meta_->len();
-      if (field_meta_->type() == AttrType::CHARS || field_meta_->type() == AttrType::DATES) {
-        copy_len = std::min(copy_len, static_cast<size_t>(value_.length() + 1));
+    for (size_t i = 0; i < field_metas_.size(); i++) {
+      const FieldMeta *field_meta = field_metas_[i];
+      const Value     &value      = values_[i];
+      if (value.is_null()) {
+        if (!field_meta->nullable()) {
+          return RC::INVALID_ARGUMENT;
+        }
+        if (field_meta->null_offset() >= 0) {
+          new_record.data()[field_meta->null_offset()] = 1;
+        }
+        memset(new_record.data() + field_meta->offset(), 0, field_meta->len());
       } else {
-        copy_len = std::min(copy_len, static_cast<size_t>(value_.length()));
+        if (field_meta->null_offset() >= 0) {
+          new_record.data()[field_meta->null_offset()] = 0;
+        }
+        memset(new_record.data() + field_meta->offset(), 0, field_meta->len());
+
+        size_t copy_len = field_meta->len();
+        if (field_meta->type() == AttrType::CHARS || field_meta->type() == AttrType::DATES) {
+          copy_len = std::min(copy_len, static_cast<size_t>(value.length() + 1));
+        } else {
+          copy_len = std::min(copy_len, static_cast<size_t>(value.length()));
+        }
+        memcpy(new_record.data() + field_meta->offset(), value.data(), copy_len);
       }
-      memcpy(new_record.data() + field_meta_->offset(), value_.data(), copy_len);
     }
 
     rc = table_->update_record(record, new_record);

@@ -751,6 +751,9 @@ RC Table::insert_entry_of_indexes(const char *record, const RID &rid)
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
+    if (index->index_meta().is_unique() && index_key_is_null(index, record)) {
+      continue;
+    }
     rc = index->insert_entry(record, &rid);
     if (rc != RC::SUCCESS) {
       break;
@@ -763,6 +766,9 @@ RC Table::delete_entry_of_indexes(const char *record, const RID &rid, bool error
 {
   RC rc = RC::SUCCESS;
   for (Index *index : indexes_) {
+    if (index->index_meta().is_unique() && index_key_is_null(index, record)) {
+      continue;
+    }
     rc = index->delete_entry(record, &rid);
     if (rc != RC::SUCCESS) {
       if (rc == RC::RECORD_INVALID_KEY && !error_on_not_exists) {
@@ -775,6 +781,12 @@ RC Table::delete_entry_of_indexes(const char *record, const RID &rid, bool error
     }
   }
   return rc;
+}
+
+bool Table::index_key_is_null(const Index *index, const char *record) const
+{
+  const FieldMeta *field = table_meta_.field(index->index_meta().field());
+  return field != nullptr && field->null_offset() >= 0 && record[field->null_offset()] != 0;
 }
 
 Index *Table::find_index(const char *index_name) const
